@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CrushX</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
+    body { background: #0e1621; color: #fff; height: 100vh; display: flex; overflow: hidden; }
+    #auth-screen { position: fixed; inset: 0; background: #0e1621; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .auth-box { background: #17212b; padding: 25px; border-radius: 16px; width: 100%; max-width: 360px; text-align: center; }
+    .auth-box h1 { color: #5288c1; margin-bottom: 8px; }
+    .auth-box input, .admin-group select, .admin-group input { width: 100%; padding: 11px; margin-bottom: 10px; border-radius: 10px; border: 1px solid #2b3a4a; background: #242f3d; color: #fff; outline: none; }
+    .btn { width: 100%; padding: 12px; border-radius: 10px; border: none; background: #5288c1; color: #fff; font-weight: 600; cursor: pointer; }
+    .sidebar { width: 280px; background: #17212b; border-right: 1px solid #0e1621; display: flex; flex-direction: column; }
+    .sidebar-header { padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0e1621; }
+    .admin-btn { background: #e5a93c; color: #000; border: none; padding: 6px 10px; border-radius: 8px; font-weight: 700; cursor: pointer; display: none; }
+    .chat-list { flex: 1; overflow-y: auto; }
+    .chat-item { padding: 12px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid #131c26; }
+    .chat-item:hover, .chat-item.active { background: #2b5278; }
+    .avatar { width: 42px; height: 42px; border-radius: 50%; background: #5288c1; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; overflow: hidden; }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .user-panel { padding: 12px 15px; background: #131b24; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+    .main-chat { flex: 1; display: flex; flex-direction: column; }
+    .chat-header { padding: 14px 20px; background: #17212b; display: flex; align-items: center; gap: 10px; }
+    .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    .msg { max-width: 75%; background: #182533; padding: 10px 14px; border-radius: 14px; align-self: flex-start; }
+    .msg.mine { background: #2b5278; align-self: flex-end; }
+    .msg-sender { font-size: 13px; font-weight: 600; color: #64b5f6; margin-bottom: 4px; cursor: pointer; }
+    .msg-time { font-size: 11px; color: #7f91a4; text-align: right; margin-top: 4px; }
+    .input-area { padding: 12px; background: #17212b; display: flex; gap: 10px; }
+    .input-area input { flex: 1; padding: 12px; border-radius: 20px; border: none; background: #242f3d; color: #fff; outline: none; }
+    .send-btn { background: #5288c1; color: #fff; border: none; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
+    .modal-card { background: #17212b; padding: 22px; border-radius: 16px; width: 100%; max-width: 380px; position: relative; }
+    .close-modal { position: absolute; top: 12px; right: 15px; background: none; border: none; color: #7f91a4; font-size: 20px; cursor: pointer; }
+    .stats-row { display: flex; gap: 10px; margin: 15px 0; }
+    .stat-box { flex: 1; background: #242f3d; padding: 10px; border-radius: 10px; text-align: center; }
+    .gifts-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; background: #242f3d; padding: 10px; border-radius: 10px; min-height: 45px; }
+    .gift-badge { background: #17212b; padding: 5px 9px; border-radius: 8px; border: 1px solid #354659; }
+    .admin-group { margin-bottom: 10px; text-align: left; }
+    .admin-group label { display: block; font-size: 12px; color: #7f91a4; margin-bottom: 4px; }
+    .row-flex { display: flex; gap: 8px; }
+    .back-btn { display: none; background: none; border: none; color: #fff; font-size: 20px; }
+    @media (max-width: 700px) {
+      .sidebar { width: 100%; position: absolute; inset: 0; z-index: 50; }
+      .sidebar.hidden { display: none; }
+      .back-btn { display: inline-block; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="auth-screen">
+  <div class="auth-box">
+    <h1>💠 CrushX</h1>
+    <p style="color:#7f91a4; font-size:13px; margin-bottom:15px;">Вход в мессенджер</p>
+    <input type="text" id="reg-name" placeholder="Ваше имя" />
+    <input type="text" id="reg-user" placeholder="Юзернейм (на латинице)" />
+    <input type="text" id="reg-avatar" placeholder="Ссылка на аватарку (необязательно)" />
+    <input type="password" id="reg-secret" placeholder="Пароль владельца (для админа)" />
+    <button class="btn" onclick="login()">Войти</button>
+  </div>
+</div>
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <b>💠 CrushX</b>
+    <button class="admin-btn" id="open-admin-btn" onclick="openAdmin()">👑 Админка</button>
+  </div>
+  <div class="chat-list" id="chat-list"></div>
+  <div class="user-panel" onclick="openMyProfile()">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="avatar" id="my-avatar" style="width:36px; height:36px;">👤</div>
+      <div>
+        <div id="my-name" style="font-weight:600; font-size:14px;">Профиль</div>
+        <div id="my-stars" style="font-size:12px; color:#ffd54f;">⭐ 0</div>
+      </div>
+    </div>
+    <span style="color:#7f91a4; font-size:12px;">Открыть ❯</span>
+  </div>
+</div>
+
+<div class="main-chat">
+  <div class="chat-header">
+    <button class="back-btn" onclick="toggleSidebar()">☰</button>
+    <b id="current-chat-name">Общий чат CrushX</b>
+  </div>
+  <div class="messages" id="messages"></div>
+  <div class="input-area" id="input-area">
+    <input type="text" id="msg-input" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendMsg()" />
+    <button class="send-btn" onclick="sendMsg()">➤</button>
+  </div>
+</div>
+
+<div class="modal" id="profile-modal">
+  <div class="modal-card" style="text-align:center;">
+    <button class="close-modal" onclick="closeModal('profile-modal')">✕</button>
+    <div class="avatar" id="p-avatar" style="width:75px; height:75px; font-size:28px; margin:0 auto 10px;">👤</div>
+    <h3 id="p-name">Имя</h3>
+    <div id="p-username" style="color:#64b5f6; font-size:13px;">@user</div>
+    <div class="stats-row">
+      <div class="stat-box"><b id="p-stars" style="color:#ffd54f;">⭐ 0</b><div style="font-size:11px; color:#7f91a4;">Звезды</div></div>
+      <div class="stat-box"><b id="p-gifts-count">🎁 0</b><div style="font-size:11px; color:#7f91a4;">Подарки</div></div>
+    </div>
+    <div class="gifts-grid" id="p-gifts"></div>
+  </div>
+</div>
+
+<div class="modal" id="admin-modal">
+  <div class="modal-card">
+    <button class="close-modal" onclick="closeModal('admin-modal')">✕</button>
+    <h3 style="margin-bottom:12px; color:#e5a93c;">👑 Панель Владельца</h3>
+    <div class="admin-group">
+      <label>Пользователь:</label>
+      <select id="admin-user-select"></select>
+    </div>
+    <div class="admin-group">
+      <label>Звезды (начислить / списать):</label>
+      <div class="row-flex">
+        <input type="number" id="admin-stars-input" value="100" />
+        <button class="btn" style="width:auto; padding:0 14px;" onclick="adminGiveStars()">⭐ Выдать</button>
+      </div>
+    </div>
+    <div class="admin-group">
+      <label>Подарок в профиль:</label>
+      <div class="row-flex">
+        <select id="admin-gift-select">
+          <option value="👑 Корона">👑 Корона</option>
+          <option value="💎 Алмаз">💎 Алмаз</option>
+          <option value="🚀 Ракета">🚀 Ракета</option>
+          <option value="🧸 Мишка">🧸 Мишка</option>
+          <option value="❤️ Сердце">❤️ Сердце</option>
+        </select>
+        <button class="btn" style="width:auto; padding:0 14px;" onclick="adminGiveGift()">🎁 Дарить</button>
+      </div>
+    </div>
+    <div class="admin-group">
+      <label>Платный @юзернейм:</label>
+      <div class="row-flex">
+        <input type="text" id="admin-new-username" placeholder="Новый юз (напр. king)" />
+        <button class="btn" style="width:auto; padding:0 14px;" onclick="adminSetUsername()">@ Сменить</button>
+      </div>
+    </div>
+    <div class="row-flex" style="margin-top:10px;">
+      <button class="btn" style="background:#2b5278; font-size:13px;" onclick="adminVerify()">☑️ Галочка</button>
+      <button class="btn" style="background:#2b5278; font-size:13px;" onclick="adminCreateChannel()">➕ Канал</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const socket = io();
+  let me = null, allUsers = {}, allChats = [], currentChatId = 'general';
+
+  function login() {
+    const name = document.getElementById('reg-name').value.trim();
+    const username = document.getElementById('reg-user').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const avatar = document.getElementById('reg-avatar').value.trim();
+    const secret = document.getElementById('reg-secret').value.trim();
+    if (!name || !username) return alert('Введите имя и юзернейм!');
+    socket.emit('register', { name, username, avatar, secret });
+  }
+
+  socket.on('init_data', d => {
+    me = d.me; allUsers = d.users; allChats = d.chats;
+    document.getElementById('auth-screen').style.display = 'none';
+    if (me.isOwner) document.getElementById('open-admin-btn').style.display = 'block';
+    updateMyPanel(); renderChats(); openChat(currentChatId);
+  });
+
+  socket.on('state_update', d => {
+    allUsers = d.users; allChats = d.chats;
+    if (me && allUsers[me.id]) { me = allUsers[me.id]; updateMyPanel(); }
+renderChats(); openChat(currentChatId, true); updateAdminSelect();
+});
+function updateMyPanel() {
+document.getElementById('my-name').innerHTML = me.name + (me.verified ? ' ☑️' : '');
+document.getElementById('my-stars').innerText = '⭐ ' + me.stars;
+const av = document.getElementById('my-avatar');
+av.innerHTML = me.avatar ? '' : me.name.toUpperCase();
+}
+function renderChats() {
+const list = document.getElementById('chat-list');
+list.innerHTML = '';
+allChats.forEach(c => {
+const div = document.createElement('div');
+div.className = 'chat-item' + (c.id === currentChatId ? ' active' : '');
+const last = c.messages[c.messages.length - 1];
+div.innerHTML = '' + c.avatar + '' + c.name + '' + (last ? last.sender + ': ' + last.text : '') + '';
+div.onclick = () => { openChat(c.id); if (window.innerWidth <= 700) toggleSidebar(); };
+list.appendChild(div);
+});
+}
+function openChat(chatId, keepScroll = false) {
+currentChatId = chatId;
+const chat = allChats.find(c => c.id === chatId);
+if (!chat) return;
+document.getElementById('current-chat-name').innerText = chat.name;
+document.getElementById('input-area').style.display = (chat.type === 'channel' && !me.isOwner) ? 'none' : 'flex';
+const box = document.getElementById('messages');
+box.innerHTML = '';
+chat.messages.forEach(m => {
+const u = allUsers[m.userId];
+const badge = u && u.verified ? ' ☑️' : '';
+const stars = u && u.stars > 0 ? ' ⭐' + u.stars : '';
+const div = document.createElement('div');
+div.className = 'msg' + (m.userId === me.id ? ' mine' : '');
+div.innerHTML = '' + m.sender + badge + ' (@' + m.username + ')' + stars + '' + m.text + '' + m.time + '';
+box.appendChild(div);
+});
+if (!keepScroll) box.scrollTop = box.scrollHeight;
+renderChats();
+}
+function sendMsg() {
+const inp = document.getElementById('msg-input');
+if (!inp.value.trim()) return;
+socket.emit('send_message', { chatId: currentChatId, text: inp.value.trim() });
+inp.value = '';
+}
+function viewProfile(userId) {
+const u = allUsers[userId];
+if (!u) return;
+document.getElementById('p-name').innerHTML = u.name + (u.verified ? ' ☑️' : '');
+document.getElementById('p-username').innerText = '@' + u.username;
+document.getElementById('p-stars').innerText = '⭐ ' + u.stars;
+document.getElementById('p-gifts-count').innerText = '🎁 ' + u.gifts.length;
+const av = document.getElementById('p-avatar');
+av.innerHTML = u.avatar ? '' : u.name.toUpperCase();
+document.getElementById('p-gifts').innerHTML = u.gifts.length ? u.gifts.map(g => '' + g + '').join('') : 'Нет подарков';
+document.getElementById('profile-modal').style.display = 'flex';
+}
+function openMyProfile() { if (me) viewProfile(me.id); }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('hidden'); }
+function openAdmin() { updateAdminSelect(); document.getElementById('admin-modal').style.display = 'flex'; }
+function updateAdminSelect() {
+const sel = document.getElementById('admin-user-select');
+if (!sel) return;
+const cur = sel.value;
+sel.innerHTML = Object.values(allUsers).map(u => '' + u.name + ' (@' + u.username + ') — ⭐' + u.stars + '').join('');
+if (cur) sel.value = cur;
+}
+function adminGiveStars() { socket.emit('admin_action', { action: 'stars', targetId: document.getElementById('admin-user-select').value, amount: parseInt(document.getElementById('admin-stars-input').value) || 0 }); }
+function adminGiveGift() { socket.emit('admin_action', { action: 'gift', targetId: document.getElementById('admin-user-select').value, gift: document.getElementById('admin-gift-select').value }); }
+function adminSetUsername() {
+const val = document.getElementById('admin-new-username').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+if (val) socket.emit('admin_action', { action: 'username', targetId: document.getElementById('admin-user-select').value, newUsername: val });
+}
+function adminVerify() { socket.emit('admin_action', { action: 'verify', targetId: document.getElementById('admin-user-select').value }); }
+function adminCreateChannel() { const n = prompt('Название канала:'); if (n) socket.emit('admin_action', { action: 'channel', name: n }); }
+</script>
+</body>
+</html>

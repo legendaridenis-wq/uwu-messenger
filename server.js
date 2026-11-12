@@ -21,6 +21,9 @@ const chats = [
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
+app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css')));
 
 io.on('connection', (socket) => {
   socket.on('register', ({ name, username, avatar, secret }) => {

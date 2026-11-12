@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const OWNER_SECRET = "admin123"; // Ваш пароль владельца
+const OWNER_SECRET = "admin123";
 
 const users = {};
 const chats = [
@@ -20,6 +20,7 @@ const chats = [
 ];
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
 
 io.on('connection', (socket) => {
   socket.on('register', ({ name, username, avatar, secret }) => {

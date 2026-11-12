@@ -8,7 +8,6 @@ function el(tag, cls, txt) {
   return e;
 }
 
-// Автовход при загрузке или переподключении
 socket.on('connect', () => {
   const saved = localStorage.getItem('crushx_auth');
   if (saved) {
@@ -30,29 +29,22 @@ function login() {
   socket.emit('register', authData);
 }
 
-function logout() {
-  localStorage.removeItem('crushx_auth');
-  location.reload();
-}
+function logout() { localStorage.removeItem('crushx_auth'); location.reload(); }
 
 socket.on('init_data', d => {
   me = d.me; allUsers = d.users; allChats = d.chats;
   document.getElementById('auth-screen').style.display = 'none';
   if (me.isOwner) document.getElementById('drawer-admin-row').style.display = 'flex';
-  addLogoutButton();
-  updateMyPanel(); renderChats(); openChat(currentChatId);
+  addLogoutButton(); updateMyPanel(); renderChats(); openChat(currentChatId);
 });
 
 function addLogoutButton() {
   if (document.getElementById('logout-row')) return;
   const menu = document.querySelector('.drawer-menu');
   if (!menu) return;
-  const row = el('div', 'menu-row');
-  row.id = 'logout-row';
-  row.style.color = '#ff5252';
+  const row = el('div', 'menu-row'); row.id = 'logout-row'; row.style.color = '#ff5252';
   row.innerHTML = '<span class="menu-icon">🚪</span>Выйти из аккаунта';
-  row.onclick = logout;
-  menu.appendChild(row);
+  row.onclick = logout; menu.appendChild(row);
 }
 
 socket.on('state_update', d => {
@@ -61,41 +53,36 @@ socket.on('state_update', d => {
   renderChats(); openChat(currentChatId, true); updateAdminSelect();
 });
 
-function setAvatar(box, u) {
+function setAvatar(box, src, fallback) {
   if (!box) return;
   box.innerHTML = '';
-  if (u.avatar) { const img = el('img'); img.src = u.avatar; box.appendChild(img); }
-  else { box.textContent = u.name.charAt(0).toUpperCase(); }
+  if (src && src.startsWith('http')) { const img = el('img'); img.src = src; box.appendChild(img); }
+  else { box.textContent = src || fallback; }
 }
 
 function updateMyPanel() {
   const title = me.name + (me.verified ? ' ☑️' : '') + (me.emojiStatus ? ' ' + me.emojiStatus : '');
   document.getElementById('d-name').textContent = title;
   document.getElementById('d-stars').textContent = '⭐ ' + me.stars + ' звезд';
-  setAvatar(document.getElementById('d-avatar'), me);
-  setAvatar(document.getElementById('top-avatar'), me);
+  setAvatar(document.getElementById('d-avatar'), me.avatar, me.name.charAt(0).toUpperCase());
+  setAvatar(document.getElementById('top-avatar'), me.avatar, me.name.charAt(0).toUpperCase());
 }
 
 function toggleDrawer() {
-  const d = document.getElementById('drawer');
-  const o = document.getElementById('drawer-overlay');
-  const open = d.classList.toggle('open');
-  o.style.display = open ? 'block' : 'none';
+  const d = document.getElementById('drawer'), o = document.getElementById('drawer-overlay');
+  o.style.display = d.classList.toggle('open') ? 'block' : 'none';
 }
 
 function toggleTheme() { document.body.classList.toggle('light'); }
 
 function setEmojiStatus() {
-  const s = prompt('Введите ваш эмодзи-статус (например: 👑, 🔥, 💎, 🖤):');
+  const s = prompt('Введите эмодзи-статус (например: 👑, 🔥, 💎):');
   if (s !== null) { me.emojiStatus = s.trim(); updateMyPanel(); }
 }
 
 function filterChats(type) {
   currentFilter = type;
-  ['all', 'group', 'channel'].forEach(t => {
-    const tab = document.getElementById('tab-' + t);
-    if (tab) tab.classList.toggle('active', t === type);
-  });
+  ['all', 'group', 'channel'].forEach(t => document.getElementById('tab-' + t)?.classList.toggle('active', t === type));
   renderChats();
 }
 
@@ -104,9 +91,12 @@ function renderChats() {
   if (!list) return;
   const q = (document.getElementById('search-input')?.value || '').trim().toLowerCase();
   list.innerHTML = '';
-  allChats.filter(c => (currentFilter === 'all' || c.type === currentFilter) && c.name.toLowerCase().includes(q)).forEach(c => {
+  allChats.filter(c => {
+    if (c.type === 'saved' && c.ownerId !== me?.id) return false;
+    return (currentFilter === 'all' || c.type === currentFilter) && c.name.toLowerCase().includes(q);
+  }).forEach(c => {
     const div = el('div', 'chat-item' + (c.id === currentChatId ? ' active' : ''));
-    const av = el('div', 'avatar', c.avatar);
+    const av = el('div', 'avatar'); setAvatar(av, c.avatar, '💬');
     const info = el('div', 'chat-info');
     const last = c.messages[c.messages.length - 1];
     info.append(el('div', 'chat-title', c.name), el('div', 'chat-preview', last ? (last.sender + ': ' + last.text) : 'Нет сообщений'));
@@ -120,9 +110,13 @@ function closeMobileChat() { document.getElementById('main-chat').classList.remo
 
 function openChat(chatId, keepScroll = false) {
   currentChatId = chatId;
-  const chat = allChats.find(c => c.id === chatId);
+  const chat = allChats.find(c => c.id === chatId) || allChats[0];
   if (!chat) return;
+  currentChatId = chat.id;
   document.getElementById('current-chat-name').textContent = chat.name;
+  document.getElementById('current-chat-desc').textContent = chat.desc || '';
+  setAvatar(document.getElementById('header-chat-avatar'), chat.avatar, '💬');
+  document.getElementById('edit-chat-btn').style.display = (me?.isOwner || chat.ownerId === me?.id) ? 'block' : 'none';
   document.getElementById('input-area').style.display = (chat.type === 'channel' && !me.isOwner) ? 'none' : 'flex';
   const box = document.getElementById('messages');
   box.innerHTML = '';
@@ -152,13 +146,32 @@ function createChatPrompt(type) {
   if (n) socket.emit('admin_action', { action: 'channel', chatType: type, name: n });
 }
 
-function openSaved() {
-  let saved = allChats.find(c => c.id === 'saved_' + me.id);
-  if (!saved) {
-    saved = { id: 'saved_' + me.id, name: 'Избранное', type: 'group', avatar: '🔖', messages: [] };
-    allChats.unshift(saved);
+function openSaved() { openChat('saved_' + me.id); document.getElementById('main-chat').classList.add('mob-open'); }
+
+function openChatSettings() {
+  const chat = allChats.find(c => c.id === currentChatId);
+  if (!chat) return;
+  document.getElementById('edit-chat-name').value = chat.name;
+  document.getElementById('edit-chat-avatar').value = chat.avatar;
+  document.getElementById('edit-chat-desc').value = chat.desc || '';
+  document.getElementById('chat-settings-modal').style.display = 'flex';
+}
+
+function saveChatSettings() {
+  socket.emit('edit_chat', {
+    chatId: currentChatId,
+    name: document.getElementById('edit-chat-name').value,
+    avatar: document.getElementById('edit-chat-avatar').value,
+    desc: document.getElementById('edit-chat-desc').value
+  });
+  closeModal('chat-settings-modal');
+}
+
+function deleteCurrentChat() {
+  if (confirm('Удалить этот чат/канал?')) {
+    socket.emit('edit_chat', { chatId: currentChatId, deleteChat: true });
+    closeModal('chat-settings-modal');
   }
-  openChat(saved.id);
 }
 
 function viewProfile(userId) {
@@ -168,12 +181,27 @@ function viewProfile(userId) {
   document.getElementById('p-username').textContent = '@' + u.username;
   document.getElementById('p-stars').textContent = '⭐ ' + u.stars;
   document.getElementById('p-gifts-count').textContent = '🎁 ' + u.gifts.length;
-  setAvatar(document.getElementById('p-avatar'), u);
-  const gBox = document.getElementById('p-gifts');
-  gBox.innerHTML = '';
+  setAvatar(document.getElementById('p-avatar'), u.avatar, u.name.charAt(0).toUpperCase());
+  const gBox = document.getElementById('p-gifts'); gBox.innerHTML = '';
   if (u.gifts.length) u.gifts.forEach(g => gBox.appendChild(el('div', 'gift-badge', g)));
   else gBox.appendChild(el('span', '', 'Пока нет подарков'));
+  const editBox = document.getElementById('my-profile-edit');
+  if (u.id === me.id) {
+    editBox.style.display = 'block';
+    document.getElementById('edit-my-name').value = me.name;
+    document.getElementById('edit-my-avatar').value = me.avatar || '';
+  } else { editBox.style.display = 'none'; }
   document.getElementById('profile-modal').style.display = 'flex';
+}
+
+function saveMyProfile() {
+  const newName = document.getElementById('edit-my-name').value;
+  const newAv = document.getElementById('edit-my-avatar').value;
+  const saved = JSON.parse(localStorage.getItem('crushx_auth') || '{}');
+  saved.name = newName; saved.avatar = newAv;
+  localStorage.setItem('crushx_auth', JSON.stringify(saved));
+  socket.emit('update_profile', { name: newName, avatar: newAv });
+  closeModal('profile-modal');
 }
 
 function openMyProfile() { if (me) viewProfile(me.id); }
@@ -183,12 +211,10 @@ function openAdmin() { updateAdminSelect(); document.getElementById('admin-modal
 function updateAdminSelect() {
   const sel = document.getElementById('admin-user-select');
   if (!sel) return;
-  const cur = sel.value;
-  sel.innerHTML = '';
+  const cur = sel.value; sel.innerHTML = '';
   Object.values(allUsers).forEach(u => {
     const opt = el('option', '', u.name + ' (@' + u.username + ') — ⭐' + u.stars);
-    opt.value = u.id;
-    sel.appendChild(opt);
+    opt.value = u.id; sel.appendChild(opt);
   });
   if (cur) sel.value = cur;
 }
@@ -197,6 +223,6 @@ function adminGiveStars() { socket.emit('admin_action', { action: 'stars', targe
 function adminGiveGift() { socket.emit('admin_action', { action: 'gift', targetId: document.getElementById('admin-user-select').value, gift: document.getElementById('admin-gift-select').value }); }
 function adminSetUsername() {
   const val = document.getElementById('admin-new-username').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
-  if (val) socket.emit('admin_action', { action: 'username', targetId: document.getElementById('admin-user-select').value, newUsername: val });
+if (val) socket.emit('admin_action', { action: 'username', targetId: document.getElementById('admin-user-select').value, newUsername: val });
 }
 function adminVerify() { socket.emit('admin_action', { action: 'verify', targetId: document.getElementById('admin-user-select').value }); }

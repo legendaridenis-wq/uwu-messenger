@@ -21,8 +21,6 @@ const chats = [
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css')));
 
 io.on('connection', (socket) => {
@@ -36,8 +34,10 @@ io.on('connection', (socket) => {
         stars: isOwner ? 9999 : 0,
         gifts: isOwner ? ['👑 Корона'] : []
       };
-    } else if (isOwner) {
-      users[id].isOwner = true;
+    } else {
+      if (name) users[id].name = name;
+      if (avatar) users[id].avatar = avatar;
+      if (isOwner) users[id].isOwner = true;
     }
     socket.userId = id;
     socket.emit('init_data', { me: users[id], users, chats });
@@ -63,7 +63,8 @@ io.on('connection', (socket) => {
     if (data.action === 'username' && target) target.username = data.newUsername;
     if (data.action === 'verify' && target) target.verified = !target.verified;
     if (data.action === 'channel') {
-      chats.push({ id: 'c_' + Date.now(), name: data.name, type: 'channel', avatar: '📢', messages: [] });
+      const cType = data.chatType || 'channel';
+      chats.push({ id: 'c_' + Date.now(), name: data.name, type: cType, avatar: cType === 'group' ? '👥' : '📢', messages: [] });
     }
     io.emit('state_update', { users, chats });
   });

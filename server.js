@@ -5,16 +5,18 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { maxHttpBufferSize: 5e6 }); // Разрешаем передачу фото до 5 МБ
+const io = new Server(server, { maxHttpBufferSize: 5e6 });
 
+const OWNER_PHONE = "+380000000000"; // Номер владельца (или вводите код admin123)
 const OWNER_SECRET = "admin123";
 
 const users = {};
+const pendingCodes = {};
 let chats = [
-  { id: 'general', name: 'Общий чат CrushX', type: 'group', avatar: '🔥', desc: 'Главный чат сообщества', messages: [
-    { userId: 'sys', sender: 'Система', username: 'crushx', text: 'Добро пожаловать в CrushX! Нажмите на имя в чате, чтобы открыть профиль.', time: 'Сейчас' }
+  { id: 'general', ownerId: 'sys', name: 'Общий чат CrushX', type: 'group', avatar: '🔥', desc: 'Главный чат сообщества', messages: [
+    { userId: 'sys', sender: 'Система', username: 'crushx', text: 'Добро пожаловать в CrushX!', time: 'Сейчас' }
   ]},
-  { id: 'news', name: 'Новости CrushX', type: 'channel', avatar: '📢', desc: 'Официальный канал новостей', messages: [
+  { id: 'news', ownerId: 'sys', name: 'Новости CrushX', type: 'channel', avatar: '📢', desc: 'Официальный канал новостей', messages: [
     { userId: 'sys', sender: 'Владелец', username: 'owner', text: 'Официальный канал проекта.', time: 'Сейчас' }
   ]}
 ];
@@ -24,12 +26,34 @@ app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
 
 io.on('connection', (socket) => {
-  socket.on('register', ({ name, username, avatar, secret }) => {
-    const isOwner = (secret === OWNER_SECRET);
-    const id = 'u_' + username;
+  // Шаг 1: Запрос кода по номеру телефона
+  socket.on('request_code', ({ phone }) => {
+    const clean = phone.replace(/[^0-9+]/g, '');
+    if (clean.length < 7) return socket.emit('auth_error', 'Введите корректный номер телефона');
+    const code = Math.floor(10000 + Math.random() * 90000).toString();
+    pendingCodes[clean] = code;
+    const isNew = !users['u_' + clean];
+    socket.emit('code_sent', { phone: clean, code, isNew });
+  });
+
+  // Шаг 2: Проверка кода и вход / регистрация
+  socket.on('verify_code', ({ phone, code, name, avatar }) => {
+    const clean = phone.replace(/[^0-9+]/g, '');
+    const valid = (pendingCodes[clean] === code) || (code === OWNER_SECRET);
+    if (!valid) return socket.emit('auth_error', 'Неверный код подтверждения!');
+    delete pendingCodes[clean];
+
+    const id = 'u_' + clean;
+    const isOwner = (clean === OWNER_PHONE) || (code === OWNER_SECRET);
+
     if (!users[id]) {
+      const uname = 'user' + clean.slice(-4) + Math.floor(10 + Math.random() * 89);
       users[id] = {
-        id, name, username, avatar: avatar || '', isOwner,
+        id, phone: clean,
+        name: (name && name.trim()) ? name.trim() : ('Пользователь ' + clean.slice(-4)),
+        username: uname,
+        avatar: avatar || '',
+        isOwner,
         verified: isOwner,
         stars: isOwner ? 9999 : 0,
         gifts: isOwner ? ['👑 Корона'] : [],
@@ -38,6 +62,7 @@ io.on('connection', (socket) => {
     } else if (isOwner) {
       users[id].isOwner = true;
     }
+
     const savedId = 'saved_' + id;
     if (!chats.find(c => c.id === savedId)) {
       chats.unshift({ id: savedId, ownerId: id, name: 'Избранное', type: 'saved', avatar: '🔖', desc: 'Личные заметки', messages: [] });
@@ -47,15 +72,46 @@ io.on('connection', (socket) => {
     io.emit('state_update', { users, chats });
   });
 
-  socket.on('update_profile', ({ name, avatar, emojiStatus }) => {
+  // Автовход по сохраненному номеру
+  socket.on('auto_login', ({ phone }) => {
+    const id = 'u_' + phone;
+    if (users[id]) {
+      socket.userId = id;
+      socket.emit('init_data', { me: users[id], users, chats });
+    } else {
+      socket.emit('need_login');
+    }
+  });
+
+  socket.on('update_profile', ({ name, username, avatar, emojiStatus }) => {
     const u = users[socket.userId];
     if (!u) return;
     if (name && name.trim()) u.name = name.trim();
+    if (username && username.trim()) u.username = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
     if (avatar !== undefined) u.avatar = avatar;
     if (emojiStatus !== undefined) u.emojiStatus = emojiStatus;
     io.emit('state_update', { users, chats });
   });
 
+  // Создание группы или канала любым пользователем
+  socket.on('create_chat', ({ chatType, name, avatar, desc }) => {
+    const u = users[socket.userId];
+    if (!u || !name || !name.trim()) return;
+    const cType = chatType === 'group' ? 'group' : 'channel';
+    const newChat = {
+      id: 'c_' + Date.now(),
+      ownerId: u.id,
+      name: name.trim(),
+      type: cType,
+      avatar: avatar || (cType === 'group' ? '👥' : '📢'),
+      desc: (desc && desc.trim()) ? desc.trim() : (cType === 'group' ? 'Группа' : 'Канал'),
+      messages: []
+    };
+    chats.push(newChat);
+    io.emit('state_update', { users, chats });
+  });
+
+  // Редактирование канала/группы владельцем чата или главным админом
   socket.on('edit_chat', ({ chatId, name, avatar, desc, deleteChat }) => {
     const u = users[socket.userId];
     const idx = chats.findIndex(c => c.id === chatId);
@@ -76,7 +132,8 @@ io.on('connection', (socket) => {
     const u = users[socket.userId];
     const chat = chats.find(c => c.id === chatId);
     if (!u || !chat || !text || !text.trim()) return;
-    if (chat.type === 'channel' && !u.isOwner) return;
+    // В канале писать может только создатель канала или главный владелец
+    if (chat.type === 'channel' && chat.ownerId !== u.id && !u.isOwner) return;
     if (chat.type === 'saved' && chat.ownerId !== u.id) return;
     const now = new Date();
     const time = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
@@ -92,10 +149,6 @@ io.on('connection', (socket) => {
     if (data.action === 'gift' && target) target.gifts.push(data.gift);
     if (data.action === 'username' && target) target.username = data.newUsername;
     if (data.action === 'verify' && target) target.verified = !target.verified;
-    if (data.action === 'channel') {
-      const cType = data.chatType || 'channel';
-      chats.push({ id: 'c_' + Date.now(), name: data.name, type: cType, avatar: cType === 'group' ? '👥' : '📢', desc: 'Описание', messages: [] });
-    }
     io.emit('state_update', { users, chats });
   });
 });

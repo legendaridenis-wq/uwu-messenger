@@ -3,23 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
   <title>CrushX</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 
+<div class="sms-toast" id="sms-toast"></div>
+
+<!-- Экран входа как в Telegram (Номер -> Код -> Имя при первой регистрации) -->
 <div id="auth-screen">
   <div class="auth-box">
-    <h1 style="color:#40a7e3;margin-bottom:14px">💠 CrushX</h1>
-    <input type="text" id="reg-name" placeholder="Ваше имя"/>
-    <input type="text" id="reg-user" placeholder="Юзернейм (на латинице)"/>
-    <label class="btn-file">📷 Выбрать аватарку из галереи<input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 'reg-avatar-data')"/></label>
-    <input type="hidden" id="reg-avatar-data"/>
-    <input type="password" id="reg-secret" placeholder="Пароль владельца (для админа)"/>
-    <button class="btn" onclick="login()">Войти в CrushX</button>
+    <h1 style="color:#40a7e3;margin-bottom:6px">💠 CrushX</h1>
+    <p id="auth-subtitle" style="color:#7f91a4;font-size:13px;margin-bottom:16px">Введите ваш номер телефона</p>
+    
+    <div id="step-phone">
+      <input type="tel" id="reg-phone" placeholder="+380 99 123 45 67" value="+380"/>
+      <button class="btn" onclick="sendPhoneCode()">Продолжить</button>
+    </div>
+
+    <div id="step-code" style="display:none">
+      <input type="text" id="reg-code" placeholder="Код из сообщения (или код владельца)"/>
+      <div id="new-user-fields" style="display:none">
+        <input type="text" id="reg-name" placeholder="Ваше имя (первая регистрация)"/>
+        <label class="btn-file">📷 Выбрать аватарку (необязательно)<input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 'reg-avatar-data')"/></label>
+        <input type="hidden" id="reg-avatar-data"/>
+      </div>
+      <button class="btn" onclick="confirmCode()">Войти</button>
+      <div style="margin-top:12px;font-size:12px;color:#40a7e3;cursor:pointer" onclick="resetAuth()">← Изменить номер</div>
+    </div>
   </div>
 </div>
 
@@ -28,14 +40,15 @@
   <div class="drawer-top">
     <div class="avatar" id="d-avatar" style="width:54px;height:54px;font-size:22px;margin-bottom:10px">👤</div>
     <div id="d-name" style="font-weight:700;font-size:16px">Имя</div>
+    <div id="d-phone" style="font-size:12px;color:var(--sub);margin-top:2px">+380...</div>
     <div id="d-stars" style="font-size:12px;color:#ffd54f;margin-top:2px">⭐ 0 звезд</div>
     <div class="drawer-status" onclick="setEmojiStatus()">Установить эмодзи-статус</div>
   </div>
   <div class="drawer-menu">
     <div class="menu-row" id="drawer-admin-row" style="display:none;color:#ffd54f" onclick="toggleDrawer();openAdmin()"><span class="menu-icon">👑</span>Панель Владельца</div>
     <div class="menu-row" onclick="toggleDrawer();openMyProfile()"><span class="menu-icon">👤</span>Мой профиль</div>
-    <div class="menu-row" onclick="toggleDrawer();createChatPrompt('group')"><span class="menu-icon">👥</span>Создать группу</div>
-    <div class="menu-row" onclick="toggleDrawer();createChatPrompt('channel')"><span class="menu-icon">📢</span>Создать канал</div>
+    <div class="menu-row" onclick="toggleDrawer();openCreateModal('group')"><span class="menu-icon">👥</span>Создать группу</div>
+    <div class="menu-row" onclick="toggleDrawer();openCreateModal('channel')"><span class="menu-icon">📢</span>Создать канал</div>
     <div class="menu-row" onclick="toggleDrawer();openSaved()"><span class="menu-icon">🔖</span>Избранное</div>
     <div class="menu-row" onclick="toggleTheme()"><span class="menu-icon">🌙</span>Ночной режим<div class="switch"></div></div>
     <div class="menu-row" style="color:#ff5252" onclick="logout()"><span class="menu-icon">🚪</span>Выйти из аккаунта</div>
@@ -74,11 +87,17 @@
   </div>
 </div>
 
-<div class="modal" id="profile-modal"><div class="modal-card" style="text-align:center"><button class="close-modal" onclick="closeModal('profile-modal')">✕</button><div class="avatar" id="p-avatar" style="width:76px;height:76px;font-size:28px;margin:0 auto 10px">👤</div><h3 id="p-name">Имя</h3><div id="p-username" style="color:#64b5f6;font-size:13px">@user</div><div class="stats-row"><div class="stat-box"><b id="p-stars" style="color:#ffd54f">⭐ 0</b><div style="font-size:11px;color:#7f91a4">Звезды</div></div><div class="stat-box"><b id="p-gifts-count">🎁 0</b><div style="font-size:11px;color:#7f91a4">Подарки</div></div></div><div class="gifts-grid" id="p-gifts"></div><div id="my-profile-edit" style="display:none;margin-top:14px;text-align:left"><input type="text" id="edit-my-name" placeholder="Новое имя"/><label class="btn-file">📷 Загрузить новое фото из галереи<input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 'edit-my-avatar')"/></label><input type="hidden" id="edit-my-avatar"/><button class="btn" onclick="saveMyProfile()">💾 Сохранить профиль</button></div></div></div>
+<!-- Создание нового канала / группы -->
+<div class="modal" id="create-chat-modal"><div class="modal-card"><button class="close-modal" onclick="closeModal('create-chat-modal')">✕</button><h3 id="create-modal-title" style="margin-bottom:12px">📢 Новый канал</h3><input type="text" id="new-chat-name" placeholder="Название"/><label class="btn-file">📷 Выбрать аватарку из галереи<input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 'new-chat-avatar')"/></label><input type="hidden" id="new-chat-avatar"/><input type="text" id="new-chat-desc" placeholder="Описание (необязательно)"/><button class="btn" onclick="submitCreateChat()">Создать</button></div></div>
 
-<div class="modal" id="chat-settings-modal"><div class="modal-card"><button class="close-modal" onclick="closeModal('chat-settings-modal')">✕</button><h3 style="margin-bottom:12px">⚙️ Настройки чата</h3><div class="admin-group"><label>Название:</label><input type="text" id="edit-chat-name"/></div><div class="admin-group"><label>Аватарка чата:</label><label class="btn-file">📷 Выбрать фото из галереи<input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 'edit-chat-avatar')"/></label><input type="text" id="edit-chat-avatar" placeholder="Или введите эмодзи (например 🔥)"/></div><div class="admin-group"><label>Описание:</label><input type="text" id="edit-chat-desc"/></div><div class="row-flex" style="margin-top:12px"><button class="btn" onclick="saveChatSettings()">💾 Сохранить</button><button class="btn" style="background:#d32f2f" onclick="deleteCurrentChat()">🗑 Удалить</button></div></div></div>
+<!-- Профиль -->
+<div class="modal" id="profile-modal"><div class="modal-card" style="text-align:center"><button class="close-modal" onclick="closeModal('profile-modal')">✕</button><div class="avatar" id="p-avatar" style="width:76px;height:76px;font-size:28px;margin:0 auto 10px">👤</div><h3 id="p-name">Имя</h3><div id="p-username" style="color:#64b5f6;font-size:13px">@user</div><div class="stats-row"><div class="stat-box"><b id="p-stars" style="color:#ffd54f">⭐ 0</b><div style="font-size:11px;color:#7f91a4">Звезды</div></div><div class="stat-box"><b id="p-gifts-count">🎁 0</b><div style="font-size:11px;color:#7f91a4">Подарки</div></div></div><div class="gifts-grid" id="p-gifts"></div><div id="my-profile-edit" style="display:none;margin-top:14px;text-align:left"><input type="text" id="edit-my-name" placeholder="Имя"/><input type="text" id="edit-my-user" placeholder="Юзернейм"/><label class="btn-file">📷 Новое фото из галереи<input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 'edit-my-avatar')"/></label><input type="hidden" id="edit-my-avatar"/><button class="btn" onclick="saveMyProfile()">💾 Сохранить профиль</button></div></div></div>
 
-<div class="modal" id="admin-modal"><div class="modal-card"><button class="close-modal" onclick="closeModal('admin-modal')">✕</button><h3 style="margin-bottom:12px;color:#e5a93c">👑 Панель Владельца</h3><div class="admin-group"><label>Пользователь:</label><select id="admin-user-select"></select></div><div class="admin-group"><label>Звезды:</label><div class="row-flex"><input type="number" id="admin-stars-input" value="100"/><button class="btn" style="width:auto;padding:0 14px" onclick="adminGiveStars()">⭐ Выдать</button></div></div><div class="admin-group"><label>Подарок:</label><div class="row-flex"><select id="admin-gift-select"><option value="👑 Корона">👑 Корона</option><option value="💎 Алмаз">💎 Алмаз</option><option value="🚀 Ракета">🚀 Ракета</option><option value="🧸 Мишка">🧸 Мишка</option><option value="❤️ Сердце">❤️ Сердце</option></select><button class="btn" style="width:auto;padding:0 14px" onclick="adminGiveGift()">🎁 Дарить</button></div></div><div class="admin-group"><label>Платный @юз:</label><div class="row-flex"><input type="text" id="admin-new-username" placeholder="Новый юз"/><button class="btn" style="width:auto;padding:0 14px" onclick="adminSetUsername()">@ Сменить</button></div></div><div class="row-flex" style="margin-top:10px"><button class="btn" style="background:#2b5278" onclick="adminVerify()">☑️ Галочка</button><button class="btn" style="background:#2b5278" onclick="createChatPrompt('channel')">➕ Канал</button></div></div></div>
+<!-- Настройки канала / группы -->
+<div class="modal" id="chat-settings-modal"><div class="modal-card"><button class="close-modal" onclick="closeModal('chat-settings-modal')">✕</button><h3 style="margin-bottom:12px">⚙️ Управление каналом / группой</h3><div class="admin-group"><label>Название:</label><input type="text" id="edit-chat-name"/></div><div class="admin-group"><label>Аватарка:</label><label class="btn-file">📷 Загрузить фото из галереи<input type="file" accept="image/*" style="display:none" onchange="handleFile(this, 'edit-chat-avatar')"/></label><input type="text" id="edit-chat-avatar" placeholder="Или эмодзи (например 🔥)"/></div><div class="admin-group"><label>Описание:</label><input type="text" id="edit-chat-desc"/></div><div class="row-flex" style="margin-top:12px"><button class="btn" onclick="saveChatSettings()">💾 Сохранить</button><button class="btn" style="background:#d32f2f" onclick="deleteCurrentChat()">🗑 Удалить</button></div></div></div>
+
+<!-- Админ панель -->
+<div class="modal" id="admin-modal"><div class="modal-card"><button class="close-modal" onclick="closeModal('admin-modal')">✕</button><h3 style="margin-bottom:12px;color:#e5a93c">👑 Панель Владельца</h3><div class="admin-group"><label>Пользователь:</label><select id="admin-user-select"></select></div><div class="admin-group"><label>Звезды:</label><div class="row-flex"><input type="number" id="admin-stars-input" value="100"/><button class="btn" style="width:auto;padding:0 14px" onclick="adminGiveStars()">⭐ Выдать</button></div></div><div class="admin-group"><label>Подарок:</label><div class="row-flex"><select id="admin-gift-select"><option value="👑 Корона">👑 Корона</option><option value="💎 Алмаз">💎 Алмаз</option><option value="🚀 Ракета">🚀 Ракета</option><option value="🧸 Мишка">🧸 Мишка</option><option value="❤️ Сердце">❤️ Сердце</option></select><button class="btn" style="width:auto;padding:0 14px" onclick="adminGiveGift()">🎁 Дарить</button></div></div><div class="admin-group"><label>Платный @юз:</label><div class="row-flex"><input type="text" id="admin-new-username" placeholder="Новый юз"/><button class="btn" style="width:auto;padding:0 14px" onclick="adminSetUsername()">@ Сменить</button></div></div><button class="btn" style="background:#2b5278;margin-top:8px" onclick="adminVerify()">☑️ Выдать / снять галочку</button></div></div>
 
 <script src="/app.js"></script>
 </body>

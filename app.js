@@ -1,5 +1,5 @@
 const socket = io();
-let me = null, allUsers = {}, allChats = [], currentChatId = 'general', currentFilter = 'all';
+let me = null, allUsers = {}, allChats = [], currentChatId = 'general', currentFilter = 'all', createType = 'channel';
 
 function el(tag, cls, txt) {
   const e = document.createElement(tag);
@@ -9,51 +9,74 @@ function el(tag, cls, txt) {
 }
 
 function handleFile(input, targetId) {
-  const file = input.files[0];
+  const file = input.files;
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const size = 200;
-      canvas.width = size; canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, size, size);
+      canvas.width = 200; canvas.height = 200;
+      canvas.getContext('2d').drawImage(img, 0, 0, 200, 200);
       document.getElementById(targetId).value = canvas.toDataURL('image/jpeg', 0.8);
-      alert('Фото выбрано! Нажмите кнопку сохранения.');
+      alert('Фото загружено! Нажмите кнопку сохранения.');
     };
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
 
+// Автовход при обновлении
 socket.on('connect', () => {
-  const saved = localStorage.getItem('crushx_auth');
-  if (saved) {
-    try {
-      const data = JSON.parse(saved);
-      if (data.name && data.username) socket.emit('register', data);
-    } catch (e) {}
-  }
+  const savedPhone = localStorage.getItem('crushx_phone');
+  if (savedPhone) socket.emit('auto_login', { phone: savedPhone });
 });
 
-function login() {
-  const name = document.getElementById('reg-name').value.trim();
-  const username = document.getElementById('reg-user').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
-  const avatar = document.getElementById('reg-avatar-data').value;
-  const secret = document.getElementById('reg-secret').value.trim();
-  if (!name || !username) return alert('Введите имя и юзернейм!');
-  const authData = { name, username, avatar: '', secret };
-  localStorage.setItem('crushx_auth', JSON.stringify(authData));
-  socket.emit('register', { name, username, avatar, secret });
+socket.on('need_login', () => {
+  localStorage.removeItem('crushx_phone');
+  document.getElementById('auth-screen').style.display = 'flex';
+});
+
+function sendPhoneCode() {
+  const phone = document.getElementById('reg-phone').value.trim();
+  socket.emit('request_code', { phone });
 }
 
-function logout() { localStorage.removeItem('crushx_auth'); location.reload(); }
+socket.on('auth_error', (msg) => alert(msg));
+
+socket.on('code_sent', ({ phone, code, isNew }) => {
+  document.getElementById('step-phone').style.display = 'none';
+  document.getElementById('step-code').style.display = 'block';
+  document.getElementById('auth-subtitle').textContent = 'Код отправлен на ' + phone;
+  document.getElementById('new-user-fields').style.display = isNew ? 'block' : 'none';
+  
+  const toast = document.getElementById('sms-toast');
+  toast.innerHTML = '📩 <b>CrushX:</b> Ваш код входа: <b style="color:#40a7e3;font-size:18px">' + code + '</b>';
+  toast.style.display = 'block';
+  setTimeout(() => { toast.style.display = 'none'; }, 15000);
+});
+
+function confirmCode() {
+  const phone = document.getElementById('reg-phone').value.trim();
+  const code = document.getElementById('reg-code').value.trim();
+  const name = document.getElementById('reg-name').value.trim();
+  const avatar = document.getElementById('reg-avatar-data').value;
+  socket.emit('verify_code', { phone, code, name, avatar });
+}
+
+function resetAuth() {
+  document.getElementById('step-phone').style.display = 'block';
+  document.getElementById('step-code').style.display = 'none';
+  document.getElementById('auth-subtitle').textContent = 'Введите ваш номер телефона';
+}
+
+function logout() { localStorage.removeItem('crushx_phone'); location.reload(); }
 
 socket.on('init_data', d => {
   me = d.me; allUsers = d.users; allChats = d.chats;
+  localStorage.setItem('crushx_phone', me.phone);
   document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('sms-toast').style.display = 'none';
   if (me.isOwner) document.getElementById('drawer-admin-row').style.display = 'flex';
   updateMyPanel(); renderChats(); openChat(currentChatId, false, true);
 });
@@ -75,6 +98,7 @@ function setAvatar(box, src, fallback) {
 function updateMyPanel() {
   const title = me.name + (me.verified ? ' ☑️' : '') + (me.emojiStatus ? ' ' + me.emojiStatus : '');
   document.getElementById('d-name').textContent = title;
+  document.getElementById('d-phone').textContent = me.phone;
   document.getElementById('d-stars').textContent = '⭐ ' + me.stars + ' звезд';
   setAvatar(document.getElementById('d-avatar'), me.avatar, me.name.charAt(0).toUpperCase());
   setAvatar(document.getElementById('top-avatar'), me.avatar, me.name.charAt(0).toUpperCase());
@@ -121,14 +145,16 @@ function renderChats() {
 function closeMobileChat() { document.getElementById('main-chat').classList.remove('mob-open'); }
 
 function openChat(chatId, keepScroll = false, silent = false) {
-  const chat = allChats.find(c => c.id === chatId) || allChats[0];
+  const chat = allChats.find(c => c.id === chatId) || allChats;
   if (!chat) return;
   currentChatId = chat.id;
   document.getElementById('current-chat-name').textContent = chat.name;
   document.getElementById('current-chat-desc').textContent = chat.desc || '';
   setAvatar(document.getElementById('header-chat-avatar'), chat.avatar, '💬');
-  document.getElementById('edit-chat-btn').style.display = (me?.isOwner || chat.ownerId === me?.id) ? 'block' : 'none';
-  document.getElementById('input-area').style.display = (chat.type === 'channel' && !me.isOwner) ? 'none' : 'flex';
+  const canEdit = (me?.isOwner || chat.ownerId === me?.id);
+  document.getElementById('edit-chat-btn').style.display = canEdit ? 'block' : 'none';
+  const canWrite = (chat.type !== 'channel') || canEdit;
+  document.getElementById('input-area').style.display = canWrite ? 'flex' : 'none';
   const box = document.getElementById('messages');
   box.innerHTML = '';
   chat.messages.forEach(m => {
@@ -152,9 +178,25 @@ function sendMsg() {
   inp.value = '';
 }
 
-function createChatPrompt(type) {
-  const n = prompt(type === 'channel' ? 'Название канала:' : 'Название группы:');
-  if (n) socket.emit('admin_action', { action: 'channel', chatType: type, name: n });
+function openCreateModal(type) {
+  createType = type;
+  document.getElementById('create-modal-title').textContent = type === 'channel' ? '📢 Новый канал' : '👥 Новая группа';
+  document.getElementById('new-chat-name').value = '';
+  document.getElementById('new-chat-avatar').value = '';
+  document.getElementById('new-chat-desc').value = '';
+  document.getElementById('create-chat-modal').style.display = 'flex';
+}
+
+function submitCreateChat() {
+  const name = document.getElementById('new-chat-name').value.trim();
+  if (!name) return alert('Введите название!');
+  socket.emit('create_chat', {
+    chatType: createType,
+    name,
+    avatar: document.getElementById('new-chat-avatar').value,
+    desc: document.getElementById('new-chat-desc').value
+  });
+  closeModal('create-chat-modal');
 }
 
 function openSaved() { openChat('saved_' + me.id); document.getElementById('main-chat').classList.add('mob-open'); }
@@ -196,40 +238,36 @@ function viewProfile(userId) {
   const gBox = document.getElementById('p-gifts'); gBox.innerHTML = '';
   if (u.gifts.length) u.gifts.forEach(g => gBox.appendChild(el('div', 'gift-badge', g)));
   else gBox.appendChild(el('span', '', 'Пока нет подарков'));
-  const editBox = document.getElementById('my-profile-edit');
-  if (u.id === me.id) {
-    editBox.style.display = 'block';
-    document.getElementById('edit-my-name').value = me.name;
-    document.getElementById('edit-my-avatar').value = me.avatar || '';
-  } else { editBox.style.display = 'none'; }
-  document.getElementById('profile-modal').style.display = 'flex';
+const editBox = document.getElementById('my-profile-edit');
+if (u.id === me.id) {
+editBox.style.display = 'block';
+document.getElementById('edit-my-name').value = me.name;
+document.getElementById('edit-my-user').value = me.username;
+document.getElementById('edit-my-avatar').value = me.avatar || '';
+} else { editBox.style.display = 'none'; }
+document.getElementById('profile-modal').style.display = 'flex';
 }
-
 function saveMyProfile() {
-  const newName = document.getElementById('edit-my-name').value;
-  const newAv = document.getElementById('edit-my-avatar').value;
-  const saved = JSON.parse(localStorage.getItem('crushx_auth') || '{}');
-  saved.name = newName;
-  localStorage.setItem('crushx_auth', JSON.stringify(saved));
-  socket.emit('update_profile', { name: newName, avatar: newAv });
-  closeModal('profile-modal');
+socket.emit('update_profile', {
+name: document.getElementById('edit-my-name').value,
+username: document.getElementById('edit-my-user').value,
+avatar: document.getElementById('edit-my-avatar').value
+});
+closeModal('profile-modal');
 }
-
 function openMyProfile() { if (me) viewProfile(me.id); }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function openAdmin() { updateAdminSelect(); document.getElementById('admin-modal').style.display = 'flex'; }
-
 function updateAdminSelect() {
-  const sel = document.getElementById('admin-user-select');
-  if (!sel) return;
-  const cur = sel.value; sel.innerHTML = '';
-  Object.values(allUsers).forEach(u => {
-    const opt = el('option', '', u.name + ' (@' + u.username + ') — ⭐' + u.stars);
-    opt.value = u.id; sel.appendChild(opt);
-  });
-  if (cur) sel.value = cur;
+const sel = document.getElementById('admin-user-select');
+if (!sel) return;
+const cur = sel.value; sel.innerHTML = '';
+Object.values(allUsers).forEach(u => {
+const opt = el('option', '', u.name + ' (' + u.phone + ') — ⭐' + u.stars);
+opt.value = u.id; sel.appendChild(opt);
+});
+if (cur) sel.value = cur;
 }
-
 function adminGiveStars() { socket.emit('admin_action', { action: 'stars', targetId: document.getElementById('admin-user-select').value, amount: parseInt(document.getElementById('admin-stars-input').value) || 0 }); }
 function adminGiveGift() { socket.emit('admin_action', { action: 'gift', targetId: document.getElementById('admin-user-select').value, gift: document.getElementById('admin-gift-select').value }); }
 function adminSetUsername() {

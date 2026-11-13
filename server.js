@@ -7,14 +7,14 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 5e6 });
 
-const OWNER_PHONE = "+380000000000"; // Номер владельца (или вводите код admin123)
+const OWNER_PHONE = "+380000000000";
 const OWNER_SECRET = "admin123";
 
 const users = {};
 const pendingCodes = {};
 let chats = [
   { id: 'general', ownerId: 'sys', name: 'Общий чат CrushX', type: 'group', avatar: '🔥', desc: 'Главный чат сообщества', messages: [
-    { userId: 'sys', sender: 'Система', username: 'crushx', text: 'Добро пожаловать в CrushX!', time: 'Сейчас' }
+    { userId: 'sys', sender: 'Система', username: 'crushx', text: 'Добро пожаловать в CrushX! Нажмите на аватарку или имя, чтобы открыть профиль или написать в ЛС.', time: 'Сейчас' }
   ]},
   { id: 'news', ownerId: 'sys', name: 'Новости CrushX', type: 'channel', avatar: '📢', desc: 'Официальный канал новостей', messages: [
     { userId: 'sys', sender: 'Владелец', username: 'owner', text: 'Официальный канал проекта.', time: 'Сейчас' }
@@ -26,7 +26,6 @@ app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
 
 io.on('connection', (socket) => {
-  // Шаг 1: Запрос кода по номеру телефона
   socket.on('request_code', ({ phone }) => {
     const clean = phone.replace(/[^0-9+]/g, '');
     if (clean.length < 7) return socket.emit('auth_error', 'Введите корректный номер телефона');
@@ -36,7 +35,6 @@ io.on('connection', (socket) => {
     socket.emit('code_sent', { phone: clean, code, isNew });
   });
 
-  // Шаг 2: Проверка кода и вход / регистрация
   socket.on('verify_code', ({ phone, code, name, avatar }) => {
     const clean = phone.replace(/[^0-9+]/g, '');
     const valid = (pendingCodes[clean] === code) || (code === OWNER_SECRET);
@@ -56,7 +54,8 @@ io.on('connection', (socket) => {
         isOwner,
         verified: isOwner,
         stars: isOwner ? 9999 : 0,
-        gifts: isOwner ? ['👑 Корона'] : [],
+        gifts: isOwner ? ['👑 Корона', '🧸 Мишка'] : [],
+        contacts: [],
         emojiStatus: ''
       };
     } else if (isOwner) {
@@ -72,7 +71,6 @@ io.on('connection', (socket) => {
     io.emit('state_update', { users, chats });
   });
 
-  // Автовход по сохраненному номеру
   socket.on('auto_login', ({ phone }) => {
     const id = 'u_' + phone;
     if (users[id]) {
@@ -81,6 +79,37 @@ io.on('connection', (socket) => {
     } else {
       socket.emit('need_login');
     }
+  });
+
+  // Добавление контакта и открытие личного чата (ЛС) по @юзернейму или номеру
+  socket.on('start_dm', ({ query }) => {
+    const u = users[socket.userId];
+    if (!u || !query) return;
+    const q = query.trim().toLowerCase().replace(/^@/, '');
+    const target = Object.values(users).find(x =>
+      x.id !== u.id && (x.username.toLowerCase() === q || x.phone.replace(/[^0-9]/g, '') === q.replace(/[^0-9]/g, ''))
+    );
+    if (!target) return socket.emit('auth_error', 'Пользователь с таким @юзернеймом или номером не найден!');
+
+    if (!u.contacts.includes(target.id)) u.contacts.push(target.id);
+    if (!target.contacts.includes(u.id)) target.contacts.push(u.id);
+
+    const dmId = 'dm_' + [u.id, target.id].sort().join('_');
+    let dmChat = chats.find(c => c.id === dmId);
+    if (!dmChat) {
+      dmChat = {
+        id: dmId,
+        type: 'dm',
+        members: [u.id, target.id],
+        name: target.name,
+        avatar: target.avatar,
+        desc: '@' + target.username,
+        messages: []
+      };
+      chats.unshift(dmChat);
+    }
+    io.emit('state_update', { users, chats });
+    socket.emit('open_chat_now', { chatId: dmId });
   });
 
   socket.on('update_profile', ({ name, username, avatar, emojiStatus }) => {
@@ -93,12 +122,11 @@ io.on('connection', (socket) => {
     io.emit('state_update', { users, chats });
   });
 
-  // Создание группы или канала любым пользователем
   socket.on('create_chat', ({ chatType, name, avatar, desc }) => {
     const u = users[socket.userId];
     if (!u || !name || !name.trim()) return;
     const cType = chatType === 'group' ? 'group' : 'channel';
-    const newChat = {
+    chats.push({
       id: 'c_' + Date.now(),
       ownerId: u.id,
       name: name.trim(),
@@ -106,12 +134,10 @@ io.on('connection', (socket) => {
       avatar: avatar || (cType === 'group' ? '👥' : '📢'),
       desc: (desc && desc.trim()) ? desc.trim() : (cType === 'group' ? 'Группа' : 'Канал'),
       messages: []
-    };
-    chats.push(newChat);
+    });
     io.emit('state_update', { users, chats });
   });
 
-  // Редактирование канала/группы владельцем чата или главным админом
   socket.on('edit_chat', ({ chatId, name, avatar, desc, deleteChat }) => {
     const u = users[socket.userId];
     const idx = chats.findIndex(c => c.id === chatId);
@@ -132,9 +158,9 @@ io.on('connection', (socket) => {
     const u = users[socket.userId];
     const chat = chats.find(c => c.id === chatId);
     if (!u || !chat || !text || !text.trim()) return;
-    // В канале писать может только создатель канала или главный владелец
     if (chat.type === 'channel' && chat.ownerId !== u.id && !u.isOwner) return;
     if (chat.type === 'saved' && chat.ownerId !== u.id) return;
+    if (chat.type === 'dm' && !chat.members.includes(u.id)) return;
     const now = new Date();
     const time = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
     chat.messages.push({ userId: u.id, sender: u.name, username: u.username, text: text.trim(), time });

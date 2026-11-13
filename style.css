@@ -35,22 +35,25 @@ body { background: var(--bg); color: var(--text); height: 100dvh; display: flex;
 .menu-row { padding: 11px 18px; display: flex; align-items: center; gap: 15px; cursor: pointer; font-size: 14px; font-weight: 500; }
 .menu-row:hover { background: var(--hover); }
 .menu-icon { font-size: 18px; width: 24px; text-align: center; color: var(--sub); }
-
-/* Живой переключатель ночного режима */
 .switch { margin-left: auto; width: 38px; height: 22px; background: #40a7e3; border-radius: 20px; position: relative; transition: background 0.25s; }
 .switch::after { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 3px; left: 19px; transition: left 0.25s; }
 body.light .switch { background: #b0b8c1; }
 body.light .switch::after { left: 3px; }
-
 .main-chat { flex: 1; display: flex; flex-direction: column; background: var(--bg); }
 .chat-header { padding: 10px 16px; background: var(--side); display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(0,0,0,0.15); }
-.messages { flex: 1; padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-.msg { max-width: 78%; min-width: 120px; background: var(--msg-in); padding: 9px 13px; border-radius: 14px; align-self: flex-start; box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
-.msg.mine { background: var(--msg-out); align-self: flex-end; }
-body.light .msg.mine { color: #000; }
+.messages { flex: 1; padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+
+/* Сообщения с аватарками как в Telegram */
+.msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 82%; align-self: flex-start; }
+.msg-row.mine { align-self: flex-end; flex-direction: row-reverse; }
+.msg-av { width: 32px; height: 32px; font-size: 13px; cursor: pointer; }
+.msg { min-width: 110px; background: var(--msg-in); padding: 9px 13px; border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+.msg-row.mine .msg { background: var(--msg-out); }
+body.light .msg-row.mine .msg { color: #000; }
 .msg-sender { font-size: 13px; font-weight: 600; color: #5288c1; margin-bottom: 4px; cursor: pointer; }
 .msg-body { font-size: 15px; line-height: 1.4; word-wrap: break-word; margin-bottom: 3px; }
 .msg-time { font-size: 11px; color: var(--sub); text-align: right; }
+
 .input-area { padding: 10px 12px; background: var(--side); display: flex; gap: 8px; align-items: center; }
 .input-area input { flex: 1; padding: 11px 16px; border-radius: 20px; border: none; background: rgba(127,145,164,0.15); color: var(--text); outline: none; font-size: 15px; }
 .send-btn { background: var(--accent); color: #fff; border: none; width: 42px; height: 42px; border-radius: 50%; cursor: pointer; flex-shrink: 0; font-size: 16px; }
@@ -59,8 +62,19 @@ body.light .msg.mine { color: #000; }
 .close-modal { position: absolute; top: 12px; right: 15px; background: none; border: none; color: #7f91a4; font-size: 20px; cursor: pointer; }
 .stats-row { display: flex; gap: 10px; margin: 14px 0; }
 .stat-box { flex: 1; background: #242f3d; padding: 10px; border-radius: 10px; text-align: center; }
-.gifts-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; background: #242f3d; padding: 10px; border-radius: 10px; min-height: 45px; }
-.gift-badge { background: #17212b; padding: 5px 9px; border-radius: 8px; border: 1px solid #354659; font-size: 13px; }
+
+/* Живая анимация подарков как в Telegram */
+.gifts-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; background: #242f3d; padding: 12px; border-radius: 12px; min-height: 60px; justify-content: center; }
+.gift-card { background: linear-gradient(145deg, #1e2c3a, #151f29); padding: 10px 12px; border-radius: 12px; border: 1px solid #354659; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 78px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.gift-emoji { font-size: 32px; display: inline-block; animation: giftDance 2.2s ease-in-out infinite; transform-origin: bottom center; }
+.gift-label { font-size: 11px; color: #b0c4de; font-weight: 500; }
+@keyframes giftDance {
+  0%, 100% { transform: rotate(-10deg) translateY(0) scale(1); }
+  25% { transform: rotate(8deg) translateY(-5px) scale(1.1); }
+  50% { transform: rotate(-8deg) translateY(0) scale(1.03); }
+  75% { transform: rotate(10deg) translateY(-4px) scale(1.1); }
+}
+
 .admin-group { margin-bottom: 10px; text-align: left; }
 .admin-group label { display: block; font-size: 12px; color: #7f91a4; margin-bottom: 4px; }
 .row-flex { display: flex; gap: 8px; }
@@ -72,5 +86,5 @@ body.light .msg.mine { color: #000; }
   .main-chat { position: fixed; inset: 0; z-index: 90; display: none; }
   .main-chat.mob-open { display: flex; }
   .back-btn { display: inline-block; }
-  .msg { max-width: 85%; }
+  .msg-row { max-width: 88%; }
 }
